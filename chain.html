@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Box Moving Simulation</title>
+  <style>
+    canvas {
+      border: 1px solid black;
+    }
+    #controls {
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <label for="numPeople">Number of People:</label>
+    <input type="number" id="numPeople" value="5" min="1">
+    <label for="numBoxes">Number of Boxes:</label>
+    <input type="number" id="numBoxes" value="10" min="1">
+    <select id="simulationType">
+      <option value="individual">Individual Carrying</option>
+      <option value="chain">Forming a Chain</option>
+    </select>
+    <button onclick="startSimulation()">Start Simulation</button>
+  </div>
+  <canvas id="simulationCanvas" width="800" height="400"></canvas>
+  <script>
+    const canvas = document.getElementById('simulationCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let numPeople = 5;
+    let numBoxes = 10;
+    const distance = 500;
+    const pickUpTime = 1000; // ms
+    const dropOffTime = 1000; // ms
+    const handOffTime = pickUpTime / 10; // ms
+    const movementSpeedBase = 1; // pixels per frame
+    const movementVariability = 0.5; // 50% speed variance
+
+    let boxes = [];
+    let people = [];
+    let pickUpQueue = [];
+    let dropOffQueue = [];
+    let simulationType = 'individual';
+    let vanPosition = 0;
+    let vanDrivingAway = false;
+    let pickingUp = false;
+    let droppingOff = false;
+    let startTime = null;
+    let elapsedTime = 0;
+
+    function startSimulation() {
+      numPeople = parseInt(document.getElementById('numPeople').value);
+      numBoxes = parseInt(document.getElementById('numBoxes').value);
+      simulationType = document.getElementById('simulationType').value;
+
+      boxes = Array.from({ length: numBoxes }, (_, i) => ({ id: i, status: 'waiting' }));
+      people = Array.from({ length: numPeople }, (_, i) => ({
+        id: i,
+        x: simulationType === 'chain' ? i * (distance / numPeople) : 0, // Start at evenly spaced positions for chain, all at van for individual
+        carrying: null,
+        speed: calculateSpeed(),
+        state: 'waiting for box'
+      }));
+      pickUpQueue = [...boxes];
+      dropOffQueue = [];
+      vanPosition = 0;
+      vanDrivingAway = false;
+      pickingUp = false;
+      droppingOff = false;
+      startTime = Date.now();
+      elapsedTime = 0;
+
+      requestAnimationFrame(animate);
+    }
+
+    function calculateSpeed() {
+      return movementSpeedBase * (1 + (Math.random() * movementVariability - movementVariability / 2));
+    }
+
+    function updateSimulation() {
+      if (simulationType === 'individual') {
+        updateIndividualSimulation();
+      } else if (simulationType === 'chain') {
+        updateChainSimulation();
+      }
+
+      if (pickUpQueue.length === 0 && dropOffQueue.length === numBoxes && !vanDrivingAway) {
+        vanDrivingAway = true;
+        elapsedTime = (Date.now() - startTime) / 1000; // Calculate elapsed time in seconds
+      }
+
+      if (vanDrivingAway && vanPosition > -200) {
+        vanPosition -= 2;
+      }
+    }
+
+    function updateIndividualSimulation() {
+      people.forEach(person => {
+        if (person.carrying === null && pickUpQueue.length > 0) {
+          if (person.x === 0 && person.state === 'waiting for box' && !pickingUp) {
+            pickingUp = true;
+            person.state = 'picking up box from the van';
+            setTimeout(() => {
+              if (pickUpQueue.length > 0 && person.state === 'picking up box from the van') {
+                person.carrying = pickUpQueue.shift();
+                person.state = 'moving to drop off';
+                pickingUp = false;
+              }
+            }, pickUpTime);
+          } else if (person.state === 'returning to van') {
+            if (person.x > 0) {
+              person.x = Math.max(0, person.x - person.speed);
+            } else if (person.x === 0) {
+              person.state = 'waiting for box';
+            }
+          }
+        } else if (person.carrying !== null) {
+          if (person.state === 'moving to drop off' && person.x < distance) {
+            person.x = Math.min(distance, person.x + person.speed);
+          } else if (person.x === distance && person.state === 'moving to drop off' && !droppingOff) {
+            droppingOff = true;
+            person.state = 'dropping box at the destination';
+            setTimeout(() => {
+              if (person.state === 'dropping box at the destination') {
+                dropOffQueue.push(person.carrying);
+                person.carrying = null;
+                person.state = 'returning to van';
+                droppingOff = false;
+              }
+            }, dropOffTime);
+          }
+        }
+      });
+    }
+
+    function updateChainSimulation() {
+      const segmentLength = distance / numPeople;
+      people.forEach((person, index) => {
+        switch (person.state) {
+          case 'waiting for box':
+            if (index === 0 && person.carrying === null && pickUpQueue.length > 0) {
+              person.state = 'picking up box from the van';
+              setTimeout(() => {
+                if (pickUpQueue.length > 0 && person.state === 'picking up box from the van') {
+                  person.carrying = pickUpQueue.shift();
+                  person.state = 'moving to next person';
+                }
+              }, pickUpTime);
+            }
+            break;
+          case 'moving to next person':
+            if (index < numPeople - 1) {
+              const nextPerson = people[index + 1];
+              if (person.x < nextPerson.x) {
+                person.x = Math.min(nextPerson.x, person.x + person.speed);
+              } else {
+                person.state = 'giving box to next person';
+              }
+            } else {
+              person.state = 'moving to drop off';
+            }
+            break;
+          case 'giving box to next person':
+            const nextPerson = people[index + 1];
+            if (nextPerson.carrying === null) {
+              setTimeout(() => {
+                if (person.state === 'giving box to next person') {
+                  nextPerson.carrying = person.carrying;
+                  person.carrying = null;
+                  person.state = 'returning to position';
+                  nextPerson.state = 'moving to next person';
+                }
+              }, handOffTime);
+            }
+            break;
+          case 'moving to drop off':
+            if (person.x < distance) {
+              person.x += person.speed;
+            } else if (person.state === 'moving to drop off' && !droppingOff) {
+              droppingOff = true;
+              person.state = 'dropping box at the destination';
+              setTimeout(() => {
+                if (person.state === 'dropping box at the destination') {
+                  dropOffQueue.push(person.carrying);
+                  person.carrying = null;
+                  person.state = 'returning to position';
+                  droppingOff = false;
+                }
+              }, dropOffTime);
+            }
+            break;
+          case 'returning to position':
+            if (person.x > index * segmentLength) {
+              person.x = Math.max(index * segmentLength, person.x - person.speed);
+            } else {
+              person.state = 'waiting for box';
+            }
+            break;
+        }
+      });
+    }
+
+    function drawSimulation() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = 'gray';
+      ctx.fillRect(vanPosition, 230, 100, 60);
+      ctx.fillStyle = 'black';
+      ctx.beginPath();
+      ctx.arc(vanPosition + 20, 295, 10, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(vanPosition + 80, 295, 10, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.fillStyle = 'white';
+      ctx.fillText('Van', vanPosition + 35, 255);
+
+      dropOffQueue.forEach((box, i) => {
+        ctx.fillStyle = 'green';
+        ctx.fillRect(distance + 10, 20 + i * 15, 10, 10);
+      });
+
+      ctx.fillStyle = 'black';
+      ctx.fillText(`Boxes in Van: ${pickUpQueue.length}`, 10, 220);
+      ctx.fillText(`Boxes at Destination: ${dropOffQueue.length}`, distance + 10, 10);
+      if (vanDrivingAway) {
+        ctx.fillText(`Time Taken: ${elapsedTime.toFixed(2)} seconds`, 10, 250);
+      }
+
+      people.forEach((person, index) => {
+        ctx.fillStyle = 'blue';
+        ctx.fillRect(person.x, 300, 20, 20);
+        ctx.fillStyle = 'black';
+        ctx.fillText(`P${person.id + 1}`, person.x + 5, 335);
+        // Annotate with current state
+        ctx.save();
+        ctx.translate(person.x + 10, 450);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillText(person.state, 0, 0);
+        ctx.restore();
+        if (person.carrying !== null) {
+          ctx.fillStyle = 'red';
+          ctx.fillRect(person.x + 5, 280, 10, 10);
+        }
+      });
+    }
+
+    function animate() {
+      updateSimulation();
+      drawSimulation();
+      requestAnimationFrame(animate);
+    }
+  </script>
+</body>
+</html>
