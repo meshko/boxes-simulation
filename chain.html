@@ -19,6 +19,9 @@
     <input type="number" id="numPeople" value="5" min="1">
     <label for="numBoxes">Number of Boxes:</label>
     <input type="number" id="numBoxes" value="10" min="1">
+    <input type="number" id="pickUpTime" value="1000" min="0" style="color: blue">
+    <label for="dropOffTime">Drop Off Time (ms):</label>
+    <input type="number" id="dropOffTime" value="1000" min="0" style="color: blue">
     <select id="simulationType">
       <option value="individual">Individual Carrying</option>
       <option value="chain">Forming a Chain</option>
@@ -33,8 +36,8 @@
     let numPeople = 5;
     let numBoxes = 10;
     const distance = 500;
-    const pickUpTime = 1000; // ms
-    const dropOffTime = 1000; // ms
+    let pickUpTime = 1000; // ms
+    let dropOffTime = 1000; // ms
     const handOffTime = pickUpTime / 10; // ms
     const movementSpeedBase = 1; // pixels per frame
     const movementVariability = 0.5; // 50% speed variance
@@ -50,10 +53,18 @@
     let droppingOff = false;
     let startTime = null;
     let elapsedTime = 0;
+    let animationId = null;
+    let destinationLoadedTime = null;
 
     function startSimulation() {
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+      }
+
       numPeople = parseInt(document.getElementById('numPeople').value);
       numBoxes = parseInt(document.getElementById('numBoxes').value);
+      pickUpTime = parseInt(document.getElementById('pickUpTime').value);
+      dropOffTime = parseInt(document.getElementById('dropOffTime').value);
       simulationType = document.getElementById('simulationType').value;
 
       boxes = Array.from({ length: numBoxes }, (_, i) => ({ id: i, status: 'waiting' }));
@@ -72,8 +83,9 @@
       droppingOff = false;
       startTime = Date.now();
       elapsedTime = 0;
+      destinationLoadedTime = null;
 
-      requestAnimationFrame(animate);
+      animationId = requestAnimationFrame(animate);
     }
 
     function calculateSpeed() {
@@ -87,13 +99,16 @@
         updateChainSimulation();
       }
 
-      if (pickUpQueue.length === 0 && dropOffQueue.length === numBoxes && !vanDrivingAway) {
+      if (pickUpQueue.length === 0 && !vanDrivingAway) {
         vanDrivingAway = true;
-        elapsedTime = (Date.now() - startTime) / 1000; // Calculate elapsed time in seconds
       }
 
       if (vanDrivingAway && vanPosition > -200) {
         vanPosition -= 2;
+      }
+
+      if (dropOffQueue.length === numBoxes && destinationLoadedTime === null) {
+        destinationLoadedTime = (Date.now() - startTime) / 1000; // Calculate elapsed time in seconds
       }
     }
 
@@ -225,8 +240,8 @@
       ctx.fillStyle = 'black';
       ctx.fillText(`Boxes in Van: ${pickUpQueue.length}`, 10, 220);
       ctx.fillText(`Boxes at Destination: ${dropOffQueue.length}`, distance + 10, 10);
-      if (vanDrivingAway) {
-        ctx.fillText(`Time Taken: ${elapsedTime.toFixed(2)} seconds`, 10, 250);
+      if (destinationLoadedTime !== null) {
+        ctx.fillText(`Time Taken: ${destinationLoadedTime.toFixed(2)} seconds`, 10, 250);
       }
 
       people.forEach((person, index) => {
@@ -250,7 +265,7 @@
     function animate() {
       updateSimulation();
       drawSimulation();
-      requestAnimationFrame(animate);
+      animationId = requestAnimationFrame(animate);
     }
   </script>
 </body>
